@@ -14,7 +14,7 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: `"${city}" not found` })
     }
 
-    const { boundingbox, display_name } = geoData[0]
+    const { boundingbox, display_name, lat: cityLat, lon: cityLon } = geoData[0]
     const [s, n, w, e] = boundingbox
 
     // Overpass: businesses with name but no website
@@ -40,11 +40,14 @@ export default async function handler(req, res) {
         type: el.tags.shop || el.tags.amenity || el.tags.office || el.tags.craft || 'business',
         street: el.tags['addr:street'] || null,
         phone: el.tags.phone || el.tags['contact:phone'] || null,
+        lat: el.lat,
+        lon: el.lon,
       }))
       .sort((a, b) => a.name.localeCompare(b.name))
 
     res.json({
       cityLabel: display_name.split(',').slice(0, 2).join(','),
+      center: [parseFloat(cityLat), parseFloat(cityLon)],
       businesses,
     })
   } catch (err) {
