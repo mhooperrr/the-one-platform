@@ -28,11 +28,6 @@ function FlyTo({ center }) {
   return null
 }
 
-const OVERPASS_ENDPOINTS = [
-  'https://overpass.kumi.systems/api/interpreter',
-  'https://overpass-api.de/api/interpreter',
-]
-
 export default function Mapper() {
   const [city, setCity] = useState('')
   const [scanning, setScanning] = useState(false)
@@ -50,70 +45,16 @@ export default function Mapper() {
     setSelected(null)
 
     try {
-      // Geocode city
-      const geoRes = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1`
-      )
-      if (!geoRes.ok) throw new Error(`Geocoding error: ${geoRes.status}`)
-      const geoData = await geoRes.json()
+      const res = await fetch(`/api/scan?city=${encodeURIComponent(q)}`)
+      const data = await res.json()
 
-      if (!geoData.length) {
-        setError(`"${q}" not found — try "Nashville, TN" or "Austin, TX"`)
+      if (!res.ok) {
+        setError(data.error || 'Scan failed — try again')
         return
       }
-
-      const { boundingbox, display_name, lat: cityLat, lon: cityLon } = geoData[0]
-      const [s, n, w, e] = boundingbox
-
-      const query = `[out:json][timeout:30];(node["name"][!"website"]["shop"](${s},${w},${n},${e});node["name"][!"website"]["amenity"](${s},${w},${n},${e});node["name"][!"website"]["office"](${s},${w},${n},${e});node["name"][!"website"]["craft"](${s},${w},${n},${e}););out body 300;`
-
-      // Try each Overpass endpoint
-      let ovData = null
-      let lastError = ''
-      for (const endpoint of OVERPASS_ENDPOINTS) {
-        try {
-          const controller = new AbortController()
-          const timer = setTimeout(() => controller.abort(), 28000)
-          const ovRes = await fetch(endpoint, {
-            method: 'POST',
-            body: query,
-            signal: controller.signal,
-          })
-          clearTimeout(timer)
-          if (ovRes.ok) {
-            ovData = await ovRes.json()
-            break
-          }
-          lastError = `HTTP ${ovRes.status} from ${endpoint}`
-        } catch (e) {
-          lastError = e.message
-        }
-      }
-
-      if (!ovData) {
-        setError(`Could not reach map data servers: ${lastError}`)
-        return
-      }
-
-      const businesses = (ovData.elements || [])
-        .filter(el => el.tags?.name && el.lat && el.lon)
-        .map(el => ({
-          id: el.id,
-          name: el.tags.name,
-          type: el.tags.shop || el.tags.amenity || el.tags.office || el.tags.craft || 'business',
-          street: el.tags['addr:street'] || null,
-          phone: el.tags.phone || el.tags['contact:phone'] || null,
-          lat: el.lat,
-          lon: el.lon,
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name))
 
       setScanCount(c => c + 1)
-      setResults({
-        cityLabel: display_name.split(',').slice(0, 2).join(','),
-        center: [parseFloat(cityLat), parseFloat(cityLon)],
-        businesses,
-      })
+      setResults(data)
     } catch (err) {
       setError(`Scan error: ${err.message}`)
     } finally {
