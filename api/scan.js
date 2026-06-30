@@ -20,17 +20,32 @@ export default async function handler(req, res) {
     // Overpass: businesses with name but no website
     const query = `[out:json][timeout:25];(node["name"][!"website"]["shop"](${s},${w},${n},${e});node["name"][!"website"]["amenity"](${s},${w},${n},${e});node["name"][!"website"]["office"](${s},${w},${n},${e});node["name"][!"website"]["craft"](${s},${w},${n},${e}););out body 300;`
 
-    const ovRes = await fetch('https://overpass-api.de/api/interpreter', {
-      method: 'POST',
-      body: query,
-      headers: { 'Content-Type': 'text/plain' },
-    })
+    // Try primary Overpass, fall back to mirror
+    const endpoints = [
+      'https://overpass-api.de/api/interpreter',
+      'https://overpass.kumi.systems/api/interpreter',
+    ]
 
-    if (!ovRes.ok) {
-      return res.status(502).json({ error: 'Overpass API error' })
+    let ovData = null
+    for (const endpoint of endpoints) {
+      try {
+        const ovRes = await fetch(endpoint, {
+          method: 'POST',
+          body: query,
+          headers: { 'Content-Type': 'text/plain' },
+        })
+        if (ovRes.ok) {
+          ovData = await ovRes.json()
+          break
+        }
+      } catch {
+        // try next mirror
+      }
     }
 
-    const ovData = await ovRes.json()
+    if (!ovData) {
+      return res.status(502).json({ error: 'Overpass servers busy — try again in a moment' })
+    }
 
     const businesses = (ovData.elements || [])
       .filter(el => el.tags?.name)
