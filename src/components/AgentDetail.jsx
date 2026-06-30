@@ -1,6 +1,8 @@
 import { X, ExternalLink } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 
 export default function AgentDetail({ agent, onClose }) {
+  const navigate = useNavigate()
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-end"
       style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }}
@@ -66,7 +68,11 @@ export default function AgentDetail({ agent, onClose }) {
           </div>
 
           {/* Action */}
-          <button className="w-full py-3 rounded-lg font-bold text-sm tracking-wide transition-all hover:opacity-90"
+          <button
+            onClick={() => {
+              if (agent.id === 'rex') { onClose(); navigate('/mapper') }
+            }}
+            className="w-full py-3 rounded-lg font-bold text-sm tracking-wide transition-all hover:opacity-90"
             style={{ background: `linear-gradient(135deg, ${agent.color}, ${agent.color}99)`, color: '#000' }}>
             {agent.action}
           </button>

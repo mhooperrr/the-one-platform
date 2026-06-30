@@ -4,6 +4,7 @@ import CommandCenter from './pages/CommandCenter'
 import Pipeline from './pages/Pipeline'
 import Finance from './pages/Finance'
 import Settings from './pages/Settings'
+import Mapper from './pages/Mapper'
 import './index.css'
 
 export default function App() {
@@ -15,6 +16,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<CommandCenter />} />
             <Route path="/pipeline" element={<Pipeline />} />
+            <Route path="/mapper" element={<Mapper />} />
             <Route path="/finance" element={<Finance />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
