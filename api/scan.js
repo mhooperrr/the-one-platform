@@ -5,11 +5,11 @@ export default async function handler(req) {
   const city = searchParams.get('city')
 
   if (!city) {
-    return new Response(JSON.stringify({ error: 'city required' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+    return json({ error: 'city required' }, 400)
   }
 
   try {
-    // Geocode
+    // Geocode city → bounding box
     const geoRes = await fetch(
       `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(city)}&format=json&limit=1`,
       { headers: { 'User-Agent': 'TheONEPlatform/1.0' } }
@@ -17,24 +17,23 @@ export default async function handler(req) {
     const geoData = await geoRes.json()
 
     if (!geoData.length) {
-      return new Response(JSON.stringify({ error: `"${city}" not found — try "Nashville, TN"` }), { status: 404, headers: { 'Content-Type': 'application/json' } })
+      return json({ error: `"${city}" not found — try "Nashville, TN"` }, 404)
     }
 
     const { boundingbox, display_name, lat: cityLat, lon: cityLon } = geoData[0]
     const [s, n, w, e] = boundingbox
 
+    // Raw QL with text/plain — this is what Overpass actually accepts
     const query = `[out:json][timeout:20];(node["name"][!"website"]["shop"](${s},${w},${n},${e});node["name"][!"website"]["amenity"](${s},${w},${n},${e});node["name"][!"website"]["office"](${s},${w},${n},${e}););out body 200;`
-    const body = 'data=' + encodeURIComponent(query)
 
     const ovRes = await fetch('https://overpass-api.de/api/interpreter', {
       method: 'POST',
-      body,
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: query,
+      headers: { 'Content-Type': 'text/plain' },
     })
 
     if (!ovRes.ok) {
-      const detail = await ovRes.text()
-      return new Response(JSON.stringify({ error: `Overpass error ${ovRes.status}`, detail: detail.slice(0, 300) }), { status: 502, headers: { 'Content-Type': 'application/json' } })
+      return json({ error: `Overpass error ${ovRes.status}` }, 502)
     }
 
     const ovData = await ovRes.json()
@@ -52,13 +51,20 @@ export default async function handler(req) {
       }))
       .sort((a, b) => a.name.localeCompare(b.name))
 
-    return new Response(JSON.stringify({
+    return json({
       cityLabel: display_name.split(',').slice(0, 2).join(','),
       center: [parseFloat(cityLat), parseFloat(cityLon)],
       businesses,
-    }), { headers: { 'Content-Type': 'application/json' } })
+    })
 
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+    return json({ error: err.message }, 500)
   }
+}
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
 }
