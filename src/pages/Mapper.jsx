@@ -4,7 +4,6 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
-// Fix Leaflet default icon paths broken by Vite bundling
 delete L.Icon.Default.prototype._getIconUrl
 L.Icon.Default.mergeOptions({
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
@@ -14,7 +13,6 @@ L.Icon.Default.mergeOptions({
 
 const COLOR = '#3DBE7A'
 
-// Custom green pin icon
 const greenIcon = new L.Icon({
   iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
@@ -30,6 +28,11 @@ function FlyTo({ center }) {
   return null
 }
 
+const OVERPASS_ENDPOINTS = [
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass-api.de/api/interpreter',
+]
+
 export default function Mapper() {
   const [city, setCity] = useState('')
   const [scanning, setScanning] = useState(false)
@@ -37,7 +40,6 @@ export default function Mapper() {
   const [error, setError] = useState(null)
   const [scanCount, setScanCount] = useState(0)
   const [selected, setSelected] = useState(null)
-  const listRef = useRef(null)
 
   async function scanCity() {
     const q = city.trim()
@@ -48,18 +50,72 @@ export default function Mapper() {
     setSelected(null)
 
     try {
-      const res = await fetch(`/api/scan?city=${encodeURIComponent(q)}`)
-      const data = await res.json()
+      // Geocode city
+      const geoRes = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1`
+      )
+      if (!geoRes.ok) throw new Error(`Geocoding error: ${geoRes.status}`)
+      const geoData = await geoRes.json()
 
-      if (!res.ok) {
-        setError(data.error || 'Scan failed. Try a different city name.')
+      if (!geoData.length) {
+        setError(`"${q}" not found — try "Nashville, TN" or "Austin, TX"`)
         return
       }
 
+      const { boundingbox, display_name, lat: cityLat, lon: cityLon } = geoData[0]
+      const [s, n, w, e] = boundingbox
+
+      const query = `[out:json][timeout:30];(node["name"][!"website"]["shop"](${s},${w},${n},${e});node["name"][!"website"]["amenity"](${s},${w},${n},${e});node["name"][!"website"]["office"](${s},${w},${n},${e});node["name"][!"website"]["craft"](${s},${w},${n},${e}););out body 300;`
+
+      // Try each Overpass endpoint
+      let ovData = null
+      let lastError = ''
+      for (const endpoint of OVERPASS_ENDPOINTS) {
+        try {
+          const controller = new AbortController()
+          const timer = setTimeout(() => controller.abort(), 28000)
+          const ovRes = await fetch(endpoint, {
+            method: 'POST',
+            body: query,
+            signal: controller.signal,
+          })
+          clearTimeout(timer)
+          if (ovRes.ok) {
+            ovData = await ovRes.json()
+            break
+          }
+          lastError = `HTTP ${ovRes.status} from ${endpoint}`
+        } catch (e) {
+          lastError = e.message
+        }
+      }
+
+      if (!ovData) {
+        setError(`Could not reach map data servers: ${lastError}`)
+        return
+      }
+
+      const businesses = (ovData.elements || [])
+        .filter(el => el.tags?.name && el.lat && el.lon)
+        .map(el => ({
+          id: el.id,
+          name: el.tags.name,
+          type: el.tags.shop || el.tags.amenity || el.tags.office || el.tags.craft || 'business',
+          street: el.tags['addr:street'] || null,
+          phone: el.tags.phone || el.tags['contact:phone'] || null,
+          lat: el.lat,
+          lon: el.lon,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name))
+
       setScanCount(c => c + 1)
-      setResults(data)
+      setResults({
+        cityLabel: display_name.split(',').slice(0, 2).join(','),
+        center: [parseFloat(cityLat), parseFloat(cityLon)],
+        businesses,
+      })
     } catch (err) {
-      setError(`Scan failed: ${err.message}`)
+      setError(`Scan error: ${err.message}`)
     } finally {
       setScanning(false)
     }
@@ -67,7 +123,6 @@ export default function Mapper() {
 
   function selectBusiness(biz) {
     setSelected(biz.id)
-    // Scroll list item into view
     const el = document.getElementById(`biz-${biz.id}`)
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }
@@ -98,7 +153,6 @@ export default function Mapper() {
           )}
         </div>
 
-        {/* Search */}
         <div className="flex gap-3">
           <div className="relative flex-1">
             <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: COLOR }} />
@@ -133,7 +187,6 @@ export default function Mapper() {
 
       {/* Map + List */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Map */}
         <div className="flex-1 relative">
           {scanning && (
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3"
@@ -146,15 +199,14 @@ export default function Mapper() {
           <MapContainer
             center={results?.center || [39.5, -98.35]}
             zoom={results ? 13 : 4}
-            style={{ height: '100%', width: '100%', background: '#111' }}
-            zoomControl={true}
+            style={{ height: '100%', width: '100%' }}
           >
             <TileLayer
               url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
               attribution='&copy; <a href="https://carto.com">CARTO</a>'
             />
             {results?.center && <FlyTo center={results.center} />}
-            {results?.businesses.filter(b => b.lat && b.lon).map(biz => (
+            {results?.businesses.map(biz => (
               <Marker
                 key={biz.id}
                 position={[biz.lat, biz.lon]}
@@ -175,9 +227,8 @@ export default function Mapper() {
           </MapContainer>
         </div>
 
-        {/* Business list */}
         {results && (
-          <div ref={listRef} className="w-80 flex-shrink-0 overflow-y-auto flex flex-col"
+          <div className="w-80 flex-shrink-0 overflow-y-auto flex flex-col"
             style={{ borderLeft: '1px solid rgba(255,255,255,0.05)', background: '#0d0d0d' }}>
             <div className="px-4 py-3 sticky top-0 z-10"
               style={{ background: '#0d0d0d', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
@@ -218,13 +269,6 @@ export default function Mapper() {
                 </div>
               ))}
             </div>
-          </div>
-        )}
-
-        {/* Empty state */}
-        {!results && !scanning && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ top: 160 }}>
-            <p className="text-gray-700 text-sm">Type a city above and hit Scan</p>
           </div>
         )}
       </div>
