@@ -27,6 +27,7 @@ export default async function handler(req, res) {
     ]
 
     let ovData = null
+    const debugLog = []
     for (const endpoint of endpoints) {
       try {
         const ovRes = await fetch(endpoint, {
@@ -34,17 +35,19 @@ export default async function handler(req, res) {
           body: query,
           headers: { 'Content-Type': 'text/plain' },
         })
+        const text = await ovRes.text()
+        debugLog.push({ endpoint, status: ovRes.status, body: text.slice(0, 300) })
         if (ovRes.ok) {
-          ovData = await ovRes.json()
+          ovData = JSON.parse(text)
           break
         }
-      } catch {
-        // try next mirror
+      } catch (e) {
+        debugLog.push({ endpoint, error: e.message })
       }
     }
 
     if (!ovData) {
-      return res.status(502).json({ error: 'Overpass servers busy — try again in a moment' })
+      return res.status(502).json({ error: 'Overpass failed', debug: debugLog })
     }
 
     const businesses = (ovData.elements || [])
