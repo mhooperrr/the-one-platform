@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MapPin, Search, Building, Globe, Phone, AlertCircle } from 'lucide-react'
+import { MapPin, Search, Building, Globe, Phone, AlertCircle, Loader2 } from 'lucide-react'
 
 const COLOR = '#3DBE7A'
 
@@ -18,58 +18,18 @@ export default function Mapper() {
     setResults(null)
 
     try {
-      // Geocode city → bounding box
-      const geoRes = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1`,
-        { headers: { 'User-Agent': 'TheONEPlatform/1.0' } }
-      )
-      const geoData = await geoRes.json()
+      const res = await fetch(`/api/scan?city=${encodeURIComponent(q)}`)
+      const data = await res.json()
 
-      if (!geoData.length) {
-        setError(`"${q}" not found. Try a full city name like "Nashville, TN".`)
+      if (!res.ok) {
+        setError(data.error || 'Scan failed. Try a different city name.')
         return
       }
 
-      const { boundingbox, display_name } = geoData[0]
-      const [s, n, w, e] = boundingbox // south, north, west, east
-
-      // Overpass: businesses with name but no website
-      const overpassQuery = `
-[out:json][timeout:30];
-(
-  node["name"][!"website"]["shop"](${s},${w},${n},${e});
-  node["name"][!"website"]["amenity"](${s},${w},${n},${e});
-  node["name"][!"website"]["office"](${s},${w},${n},${e});
-  node["name"][!"website"]["craft"](${s},${w},${n},${e});
-);
-out body 300;
-      `.trim()
-
-      const ovRes = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        body: overpassQuery,
-      })
-      const ovData = await ovRes.json()
-
-      const businesses = (ovData.elements || [])
-        .filter(el => el.tags?.name)
-        .map(el => ({
-          id: el.id,
-          name: el.tags.name,
-          type: el.tags.shop || el.tags.amenity || el.tags.office || el.tags.craft || 'business',
-          street: el.tags['addr:street'] || null,
-          phone: el.tags.phone || el.tags['contact:phone'] || null,
-          email: el.tags.email || el.tags['contact:email'] || null,
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name))
-
       setScanCount(c => c + 1)
-      setResults({
-        cityLabel: display_name.split(',').slice(0, 2).join(','),
-        businesses,
-      })
-    } catch {
-      setError('Scan failed — Overpass may be busy. Try again in a moment.')
+      setResults(data)
+    } catch (err) {
+      setError(`Scan failed: ${err.message}`)
     } finally {
       setScanning(false)
     }
